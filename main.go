@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -40,10 +41,27 @@ func checkEmails(bot *tgbotapi.BotAPI, tgAPI string, server string,
 
 	if len(unseenSeqNums) > 0 {
 
-		tgMessage := tgbotapi.NewMessage(tgID, "You got mail!")
-		_, err = bot.Send(tgMessage)
-		if err != nil {
-			log.Println("Error sending Telegram message:", err)
+		seqSet := new(imap.SeqSet)
+		seqSet.AddNum(unseenSeqNums...)
+
+		messages := make(chan *imap.Message, len(unseenSeqNums))
+		done := make(chan error, 1)
+
+		go func() {
+			done <- imapClient.Fetch(seqSet, []imap.FetchItem{imap.FetchEnvelope}, messages)
+		}()
+
+		for msg := range messages {
+			subject := msg.Envelope.Subject
+			tgMessage := tgbotapi.NewMessage(tgID, fmt.Sprintf("New email: %s", subject))
+			_, err = bot.Send(tgMessage)
+			if err != nil {
+				log.Println("Error sending Telegram message:", err)
+			}
+		}
+
+		if err := <-done; err != nil {
+			log.Fatal(err)
 		}
 	}
 }
